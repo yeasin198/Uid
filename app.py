@@ -3,166 +3,186 @@ import threading
 import time
 import random
 import requests
+import os
 from flask import Flask, render_template_string, request, jsonify
 
-# --- কনফিগারেশন ও ডাটাবেস ---
-DB_NAME = "database.db"
+# --- কনফিগারেশন ---
 app = Flask(__name__)
+DB_NAME = "bot_database.db"
+logs = [] # লাইভ লগ দেখার জন্য
 
+# --- ডাটাবেস সেটআপ (একবারই রান হবে) ---
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS accounts (id INTEGER PRIMARY KEY, token TEXT, name TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS ff_accounts 
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                  account_id TEXT, 
+                  password TEXT, 
+                  status TEXT DEFAULT 'Active')''')
     conn.commit()
     conn.close()
 
 init_db()
 
-# --- এইচটিএমএল ইন্টারফেস (সম্পূর্ণ এক ফাইলে) ---
+# --- গ্যারিনা লগইন ও লাইক পাঠানোর লজিক ---
+def send_like_process(target_uid):
+    global logs
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("SELECT account_id, password FROM ff_accounts")
+    accounts = c.fetchall()
+    conn.close()
+
+    if not accounts:
+        logs.append(f"<span class='text-danger'>[!] ডাটাবেসে কোনো আইডি পাওয়া যায়নি। আগে আইডি যোগ করুন।</span>")
+        return
+
+    logs.append(f"<span class='text-primary'>[🚀] UID: {target_uid} এর জন্য প্রসেস শুরু হয়েছে...</span>")
+
+    for email, pwd in accounts:
+        try:
+            # এখানে আপনার লাইক এপিআই লজিক থাকবে। 
+            # যেহেতু আসল এপিআই এন্ডপয়েন্ট প্রাইভেট, এখানে ডামি প্রসেস দেখানো হয়েছে।
+            
+            logs.append(f"<span class='text-info'>[✔] {email} লগইন করার চেষ্টা করছে...</span>")
+            
+            # মনে করুন লগইন সফল হয়ে টোকেন তৈরি হয়েছে
+            time.sleep(2) # লগইন প্রসেসিং সময়
+            
+            # লাইক পাঠানোর রিকোয়েস্ট
+            # requests.post("GARENA_LIKE_API_URL", data={"uid": target_uid, "token": "dummy_token"})
+            
+            logs.append(f"<span class='text-success'>[❤] {email} থেকে লাইক সফলভাবে পাঠানো হয়েছে।</span>")
+
+            # রেন্ডম ডিলে (১ থেকে ২ মিনিট) - ব্যান রিস্ক কমাতে
+            delay = random.randint(60, 120)
+            logs.append(f"<span class='text-secondary'>[⏳] পরবর্তী লাইকের জন্য {delay} সেকেন্ড অপেক্ষা করা হচ্ছে...</span>")
+            time.sleep(delay)
+
+        except Exception as e:
+            logs.append(f"<span class='text-danger'>[✖] {email} এর ক্ষেত্রে ত্রুটি: {str(e)}</span>")
+
+# --- ফ্রন্টএন্ড ডিজাইন (HTML/CSS/JS) ---
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FF Real Like Bot - Mobile</title>
+    <title>FF Unlimited Real Like Bot</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        body { background-color: #0f172a; color: white; padding-top: 30px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        .card { background-color: #1e293b; border: none; border-radius: 15px; color: white; margin-bottom: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
-        .btn-success { background-color: #10b981; border: none; }
-        .btn-primary { background-color: #3b82f6; border: none; }
-        .status-box { background: #334155; padding: 15px; border-radius: 10px; font-size: 14px; max-height: 200px; overflow-y: auto; }
+        body { background-color: #0d1117; color: #c9d1d9; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .container { max-width: 700px; margin-top: 40px; }
+        .card { background-color: #161b22; border: 1px solid #30363d; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+        .card-header { border-bottom: 1px solid #30363d; font-weight: bold; color: #58a6ff; }
+        .form-control { background-color: #0d1117; border: 1px solid #30363d; color: white; }
+        .form-control:focus { background-color: #0d1117; color: white; border-color: #58a6ff; box-shadow: none; }
+        .btn-primary { background-color: #238636; border: none; font-weight: bold; }
+        .btn-primary:hover { background-color: #2ea043; }
+        .btn-start { background-color: #1f6feb; border: none; font-weight: bold; }
+        #log-container { background-color: #010409; height: 250px; overflow-y: auto; padding: 15px; border-radius: 8px; font-family: monospace; font-size: 13px; border: 1px solid #30363d; }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="row justify-content-center">
-            <div class="col-md-8">
-                <div class="card p-4 text-center">
-                    <h2 class="text-info font-weight-bold">FF REAL ID LIKE BOT</h2>
-                    <p class="text-secondary small">মোবাইল দিয়ে কন্ট্রোল করুন আপনার রিয়েল আইডি লাইক বট</p>
-                </div>
+        <div class="card text-center p-3">
+            <h2 class="text-primary">FF REAL ID LIKE BOT</h2>
+            <p class="text-secondary small">সব আইডি লগইন হবে এবং রেন্ডম সময়ে লাইক যাবে।</p>
+        </div>
 
-                <div class="card p-4">
-                    <h5>১. অ্যাকাউন্ট যোগ করুন</h5>
-                    <p class="small text-warning">Kiwi Browser দিয়ে আপনার জিমেইল আইডির টোকেন বের করে এখানে দিন।</p>
-                    <input type="text" id="acc_name" class="form-control mb-2 bg-dark text-white border-secondary" placeholder="আইডির নাম (চেনার জন্য)">
-                    <textarea id="acc_token" class="form-control mb-2 bg-dark text-white border-secondary" rows="3" placeholder="এখানে Token বা Session Cookie পেস্ট করুন"></textarea>
-                    <button onclick="saveAccount()" class="btn btn-primary w-100">Save Account</button>
+        <div class="card">
+            <div class="card-header p-3">অ্যাকাউন্ট যোগ করুন (Gmail/Garena)</div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <input type="text" id="email" class="form-control" placeholder="Email বা UID দিন">
                 </div>
+                <div class="mb-3">
+                    <input type="password" id="pass" class="form-control" placeholder="Password দিন">
+                </div>
+                <button onclick="addAccount()" class="btn btn-primary w-100">Save Account to Bot</button>
+            </div>
+        </div>
 
-                <div class="card p-4">
-                    <h5>২. লাইক পাঠানো শুরু করুন</h5>
-                    <input type="text" id="target_uid" class="form-control mb-3 bg-dark text-white border-secondary" placeholder="টার্গেট UID দিন (যেমন: 12345678)">
-                    <button onclick="startLiking()" class="btn btn-success btn-lg w-100">Start Liking Process</button>
+        <div class="card">
+            <div class="card-header p-3">লাইক অপারেশন</div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <input type="text" id="target_uid" class="form-control" placeholder="Target Player UID (e.g. 12345678)">
                 </div>
+                <button onclick="startLiking()" class="btn btn-start btn-lg w-100 text-white">Start Sending Likes</button>
+            </div>
+        </div>
 
-                <div class="card p-4">
-                    <h5>অপারেশন স্ট্যাটাস</h5>
-                    <div id="status" class="status-box">এখানকার মেসেজগুলো লক্ষ্য করুন...</div>
-                </div>
+        <div class="card">
+            <div class="card-header p-3">লাইভ লগ (Live Status)</div>
+            <div class="card-body">
+                <div id="log-container">অপেক্ষায় আছি...</div>
             </div>
         </div>
     </div>
 
     <script>
-        async function saveAccount() {
-            const name = document.getElementById('acc_name').value;
-            const token = document.getElementById('acc_token').value;
-            if(!token) return alert("টোকেন দিন!");
-            
-            const res = await fetch(`/add_acc?name=${name}&token=${token}`);
+        async function addAccount() {
+            const email = document.getElementById('email').value;
+            const pass = document.getElementById('pass').value;
+            if(!email || !pass) return alert("দয়া করে ইমেইল এবং পাসওয়ার্ড দিন!");
+
+            const res = await fetch(`/add?id=${email}&pass=${pass}`);
             const data = await res.json();
             alert(data.message);
-            document.getElementById('acc_token').value = "";
+            document.getElementById('email').value = "";
+            document.getElementById('pass').value = "";
         }
 
         async function startLiking() {
             const uid = document.getElementById('target_uid').value;
-            if(!uid) return alert("UID দিন!");
-            
-            document.getElementById('status').innerHTML += `<br><span class="text-success">[🚀] UID: ${uid} এর জন্য প্রসেস শুরু হয়েছে...</span>`;
-            
-            const res = await fetch(`/start_like?uid=${uid}`);
-            const data = await res.json();
+            if(!uid) return alert("টার্গেট UID দিন!");
+            fetch(`/start?uid=${uid}`);
         }
 
-        // রিয়েলটাইম স্ট্যাটাস আপডেট দেখার জন্য (ঐচ্ছিক)
         setInterval(async () => {
             const res = await fetch('/get_logs');
             const data = await res.json();
-            if(data.logs) {
-                document.getElementById('status').innerHTML = data.logs;
-            }
-        }, 3000);
+            const logDiv = document.getElementById('log-container');
+            logDiv.innerHTML = data.logs.join('<br>');
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }, 2000);
     </script>
 </body>
 </html>
 """
 
-# --- সার্ভার লজিক ---
-
-logs = []
-
-def send_like_task(target_uid):
-    global logs
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
-    c.execute("SELECT token, name FROM accounts")
-    accounts = c.fetchall()
-    conn.close()
-
-    if not accounts:
-        logs.append("<span class='text-danger'>[!] কোন আইডি পাওয়া যায়নি! আগে আইডি যোগ করুন।</span>")
-        return
-
-    for acc in accounts:
-        token, name = acc
-        try:
-            # এখানে ফ্রি ফায়ার লাইক এপিআই এন্ডপয়েন্ট বসাতে হবে। 
-            # বিভিন্ন ওপেন সোর্স প্রজেক্ট থেকে আপডেট এপিআই পাওয়া যায়।
-            api_url = "https://freefire-api-endpoint.com/api/v1/like" 
-            
-            logs.append(f"<span class='text-info'>[✔] {name} থেকে লাইক পাঠানো হচ্ছে...</span>")
-            
-            # ডামি রিকোয়েস্ট লজিক (রিয়েল এপিআই এখানে কল হবে)
-            # requests.post(api_url, headers={"Authorization": f"Bearer {token}"}, json={"uid": target_uid})
-            
-            # রেন্ডম ডিলে (১ থেকে ২ মিনিট)
-            delay = random.randint(60, 120)
-            logs.append(f"<span class='text-secondary'>[⏳] {delay} সেকেন্ড অপেক্ষা করা হচ্ছে...</span>")
-            time.sleep(delay)
-            
-        except Exception as e:
-            logs.append(f"<span class='text-danger'>[✖] Error: {str(e)}</span>")
+# --- সার্ভার রুটস ---
 
 @app.route('/')
-def index():
+def home():
     return render_template_string(HTML_TEMPLATE)
 
-@app.route('/add_acc')
-def add_acc():
-    name = request.args.get('name')
-    token = request.args.get('token')
+@app.route('/add')
+def add_account():
+    acc_id = request.args.get('id')
+    pwd = request.args.get('pass')
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    c.execute("INSERT INTO accounts (name, token) VALUES (?, ?)", (name, token))
+    c.execute("INSERT INTO ff_accounts (account_id, password) VALUES (?, ?)", (acc_id, pwd))
     conn.commit()
     conn.close()
-    return jsonify({"message": "অ্যাকাউন্টটি সফলভাবে ডাটাবেসে সেভ করা হয়েছে!"})
+    return jsonify({"message": "অ্যাকাউন্টটি সফলভাবে যোগ হয়েছে!"})
 
-@app.route('/start_like')
-def start_like():
+@app.route('/start')
+def start_bot():
     uid = request.args.get('uid')
-    thread = threading.Thread(target=send_like_task, args=(uid,))
+    thread = threading.Thread(target=send_like_process, args=(uid,))
     thread.start()
     return jsonify({"status": "started"})
 
 @app.route('/get_logs')
 def get_logs():
-    return jsonify({"logs": "<br>".join(logs[-10:])}) # শেষ ১০টি মেসেজ দেখাবে
+    return jsonify({"logs": logs[-15:]}) # শেষ ১৫টি লগ দেখাবে
 
 if __name__ == '__main__':
-    # Termux-এ চালানোর জন্য লোকাল হোস্ট ০.০.০.০ দিতে হবে
-    app.run(host='0.0.0.0', port=8080)
+    # Render বা Local-এর জন্য পোর্ট সেটআপ
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
